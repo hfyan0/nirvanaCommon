@@ -3,7 +3,7 @@ package org.nirvana;
 import java.io._
 import org.joda.time.format.DateTimeFormat
 import org.joda.time.format.DateTimeFormatter
-import org.joda.time.{Period, DateTime, Duration, Days}
+import org.joda.time.{Period, DateTime, DateTimeZone, LocalDate, LocalTime, Duration, Days, Seconds}
 
 case class OHLCPriceBar(val o: Double, val h: Double, val l: Double, val c: Double, val v: Long)
 case class OHLCBar(val dt: DateTime, val symbol: String, val priceBar: OHLCPriceBar) {
@@ -56,7 +56,7 @@ case class OHLCBar(val dt: DateTime, val symbol: String, val priceBar: OHLCPrice
     b.append(mkt)
     b.append(",")
     if (numLeadingZeros > 0) {
-      b.append(Util.addLeadingChar(symbol, '0', numLeadingZeros))
+      b.append(SUtil.addLeadingChar(symbol, '0', numLeadingZeros))
     }
     b.append(",")
     b.append(priceBar.o.toString)
@@ -153,19 +153,20 @@ object DataFmtAdaptors {
   def parseBlmgFmt1(s: String, addLeadingZeros: Boolean): Option[OHLCBar] = {
     val lscsvfields = s.split(",").toList
 
-    if (!Util.isDouble(lscsvfields(2)) ||
-      lscsvfields.length != 7) None
-    else {
-      val dt_try1 = Util.convertTimestampFmt3(lscsvfields(0))
-      val dt_try2 = Util.convertTimestampFmt4(lscsvfields(0))
+    if (lscsvfields.length != 7) return None
+    if (!SUtil.isDouble(lscsvfields(2))) return None
 
-      if (dt_try1 == None && dt_try2 == None) None
-      val dt = {
-        if (dt_try1 != None) dt_try1.get
-        else if (dt_try2 != None) dt_try2.get
-        else Util.EPOCH
-      }
+    val dt_try1 = SUtil.convertTimestampFmt3(lscsvfields(0))
+    val dt_try2 = SUtil.convertTimestampFmt4(lscsvfields(0))
+    if (dt_try1 == None && dt_try2 == None) return None
 
+    val dt = {
+      if (dt_try1 != None) dt_try1.get
+      else if (dt_try2 != None) dt_try2.get
+      else SUtil.EPOCH
+    }
+
+    try {
       val ohlcpb = OHLCPriceBar(
         lscsvfields(2).toDouble,
         lscsvfields(3).toDouble,
@@ -173,6 +174,7 @@ object DataFmtAdaptors {
         lscsvfields(5).toDouble,
         lscsvfields(6).toDouble.toLong
       )
+
       var sym = {
         val sym2 = lscsvfields(1).split(" ").toList
         if (sym2.length > 0)
@@ -181,12 +183,18 @@ object DataFmtAdaptors {
           lscsvfields(1)
       }
 
-      if (addLeadingZeros) {
-        sym = Util.addLeadingChar(sym, '0', 5)
+      if (addLeadingZeros && SUtil.isDouble(sym)) {
+        sym = SUtil.addLeadingChar(sym, '0', 5)
       }
 
-      Some(OHLCBar(dt, sym, ohlcpb))
+      return Some(OHLCBar(dt, sym, ohlcpb))
     }
+    catch {
+      case e: Exception => return None
+    }
+
+    return None
+
   }
 
   class OHLCOutputAdaptor(val startTime: DateTime, val endTime: DateTime, val barIntervalInSec: Int) {
@@ -287,25 +295,39 @@ case class PnLCalcRow(
   val cumUrlzdPnL:          Double
 )
 
-object Util {
+sealed abstract class TimeZone
+case class HongKong extends TimeZone
+case class NewYork extends TimeZone
+case class London extends TimeZone
+
+object SUtil {
   val EPSILON = 0.00001
   val SMALLNUM = 0.01
   val EPOCH = new DateTime(1970, 1, 1, 0, 0, 0)
 
   private val _dateTimeFormat: DateTimeFormatter = DateTimeFormat.forPattern("yyyy-MM-dd HH:mm:ss")
 
-  def getCurrentTimeStamp(): java.sql.Timestamp = {
-    val today = new java.util.Date()
-    new java.sql.Timestamp(today.getTime())
+  def getCurrentSqlTimeStampStr(timezone: TimeZone): String = {
+    getCurrentSqlTimeStamp(timezone).toString
   }
-  def getCurrentTimeStampStr(): String = {
-    getCurrentTimeStamp.toString
+
+  def getCurrentDateTime(timezone: TimeZone): DateTime = {
+    val utcnow = new DateTime(DateTimeZone.UTC)
+
+    timezone match {
+      case HongKong() => utcnow.plusHours(8)
+      case NewYork()  => utcnow.plusHours(-5)
+      case London()   => utcnow
+      case _          => utcnow
+    }
   }
-  def getCurrentDateTime(): DateTime = {
-    new DateTime()
+
+  def getCurrentSqlTimeStamp(timezone: TimeZone): java.sql.Timestamp = {
+    new java.sql.Timestamp(getCurrentDateTime(timezone).getMillis())
   }
-  def getCurrentDateTimeStr(): String = {
-    getCurrentDateTime.toString
+
+  def getCurrentDateTimeStr(timezone: TimeZone): String = {
+    getCurrentDateTime(timezone).toString
   }
 
   def convertDateTimeToStr(dt: DateTime): String = {
@@ -347,46 +369,47 @@ object Util {
   // from 20160112_123456_000000 to DateTime
   //--------------------------------------------------
   def convertTimestampFmt2(ts: String): DateTime = {
-    Util.convertMySQLTSToDateTime(Util.convertTimestampFmt1(ts))
+    SUtil.convertMySQLTSToDateTime(SUtil.convertTimestampFmt1(ts))
   }
 
   //--------------------------------------------------
   // from 2016-01-12 12:34 to DateTime
   //--------------------------------------------------
   def convertTimestampFmt3(ts: String): Option[DateTime] = {
-    if (ts.length < 16) None
+    if (ts.length < 16) return None
     else {
       val formatter = DateTimeFormat.forPattern("yyyy-MM-dd HH:mm")
       val dt: DateTime = formatter.parseDateTime(ts.substring(0, 16))
-      Some(dt)
+      return Some(dt)
     }
   }
   //--------------------------------------------------
   // from 2016-01-12 to DateTime
   //--------------------------------------------------
   def convertTimestampFmt4(ts: String): Option[DateTime] = {
-    if (ts.length < 10) None
+    if (ts.length < 10) return None
     else {
       val formatter = DateTimeFormat.forPattern("yyyy-MM-dd")
       val dt: DateTime = formatter.parseDateTime(ts.substring(0, 10))
-      Some(dt)
+      return Some(dt)
     }
   }
 
   def parseTradeFeed(sTradeFeed: String): (Boolean, List[String]) = {
-    val csvFields = sTradeFeed.split(",")
-    if (csvFields.length == 10) (true, csvFields.toList)
+    val csvFields = sTradeFeed.split(",").toList
+    if (csvFields.length == 10) (true, csvFields.map(_.trim))
     else (false, List())
   }
   def parseAugmentedTradeFeed(sTradeFeed: String): (Boolean, List[String]) = {
-    val csvFields = sTradeFeed.split(",")
-    if (csvFields.length == 11) (true, csvFields.toList)
+    val csvFields = sTradeFeed.split(",").toList
+    if (csvFields.length == 11) (true, csvFields.map(_.trim))
     else (false, List())
   }
   def parseMarketFeedNominal(sMarketFeed: String): (Boolean, MarketFeedNominal) = {
-    val csvFields = sMarketFeed.split(",")
-    if (csvFields.length == 3 && isDouble(csvFields(2))) (true, MarketFeedNominal(Util.convertTimestampFmt2(csvFields(0)), csvFields(1), csvFields(2).toDouble))
-    else (false, MarketFeedNominal(Util.EPOCH, "", 0))
+    val csvFields = sMarketFeed.split(",").toList
+    if (csvFields.length == 3 && isDouble(csvFields(2)))
+      (true, MarketFeedNominal(SUtil.convertTimestampFmt2(csvFields(0).trim), csvFields(1).trim, csvFields(2).toDouble))
+    else (false, MarketFeedNominal(SUtil.EPOCH, "", 0))
   }
 
   def isDouble(x: String) = {
@@ -399,7 +422,10 @@ object Util {
     }
   }
 
-  def getListOfDatesWithinRange(startDT: DateTime, endDT: DateTime): List[DateTime] = {
+  def getListOfDatesWithinRange(startLD: LocalDate, endLD: LocalDate, mtmTime: LocalTime): List[DateTime] = {
+    val startDT = startLD.toDateTime(mtmTime)
+    val endDT = endLD.toDateTime(mtmTime)
+
     val numofdays = Days.daysBetween(startDT, endDT).getDays()
     (0 to numofdays).map(startDT.plusDays(_)).toList
   }
@@ -420,13 +446,11 @@ object Util {
     }
     else
       s
-
   }
-
 }
 
 class PeriodicTask(val intervalInSec: Int) {
-  var _lastTime: DateTime = Util.EPOCH
+  var _lastTime: DateTime = SUtil.EPOCH
   def checkIfItIsTimeToWakeUp(timeNow: DateTime): Boolean = {
     val msAfter = timeNow.getMillis - _lastTime.getMillis
     val secAfter = msAfter / 1000
@@ -436,5 +460,23 @@ class PeriodicTask(val intervalInSec: Int) {
     }
     else false
 
+  }
+}
+
+object TradingHours {
+  val defaultResponse = true
+
+  def isTradingHour(symbol: String, dt: DateTime) = {
+    val loctime = dt.toLocalTime
+    val diff1 = Seconds.secondsBetween(loctime, new LocalTime(9, 30)).getSeconds
+    val diff2 = Seconds.secondsBetween(loctime, new LocalTime(12, 0)).getSeconds
+    val diff3 = Seconds.secondsBetween(loctime, new LocalTime(13, 0)).getSeconds
+    val diff4 = Seconds.secondsBetween(loctime, new LocalTime(16, 0)).getSeconds
+
+    if (diff1 > 0 || diff4 < 0) false
+    else if (diff1 <= 0 && diff2 >= 0) true
+    else if (diff2 < 0 && diff3 > 0) false
+    else if (diff3 <= 0 && diff4 >= 0) true
+    else false
   }
 }
