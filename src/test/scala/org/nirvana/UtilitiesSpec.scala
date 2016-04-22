@@ -102,9 +102,9 @@ class UtilTest extends AssertionsForJUnit {
     println("NewYork: " + SUtil.getCurrentSqlTimeStampStr(NewYork()))
     println("NewYork: " + SUtil.getCurrentDateTimeStr(NewYork()))
 
-    assertEquals(SUtil.getCurrentSqlTimeStampStr(HongKong()).substring(11,19),SUtil.getCurrentDateTimeStr(HongKong()).substring(11,19))
-    assertEquals(SUtil.getCurrentSqlTimeStampStr(NewYork()).substring(11,19),SUtil.getCurrentDateTimeStr(NewYork()).substring(11,19))
-    assertEquals(SUtil.getCurrentSqlTimeStampStr(London()).substring(11,19),SUtil.getCurrentDateTimeStr(London()).substring(11,19))
+    assertEquals(SUtil.getCurrentSqlTimeStampStr(HongKong()).substring(11, 19), SUtil.getCurrentDateTimeStr(HongKong()).substring(11, 19))
+    assertEquals(SUtil.getCurrentSqlTimeStampStr(NewYork()).substring(11, 19), SUtil.getCurrentDateTimeStr(NewYork()).substring(11, 19))
+    assertEquals(SUtil.getCurrentSqlTimeStampStr(London()).substring(11, 19), SUtil.getCurrentDateTimeStr(London()).substring(11, 19))
   }
 
   @Test def testTradingHours() {
@@ -123,6 +123,79 @@ class UtilTest extends AssertionsForJUnit {
     assertEquals(TradingHours.isTradingHour("Dummy", new DateTime(2016, 1, 20, 13, 0, 1)), true)
     assertEquals(TradingHours.isTradingHour("Dummy", new DateTime(2016, 1, 20, 15, 59, 59)), true)
     assertEquals(TradingHours.isTradingHour("Dummy", new DateTime(2016, 1, 20, 16, 0, 0)), true)
+  }
+
+  @Test def testStdev() {
+    val testLs: List[Double] = List(673.0, 447.0, 884.0, 718.0, 284.0, 745.0, 95.0, 751.0, 273.0, 580.0, 512.0, 412.0, 163.0, 81.0, 448.0, 8.0)
+    assert(Math.abs(SUtil.stdev(testLs) - 263.1) < 0.01)
+  }
+
+  @Test def testCNDF() {
+    assert(Math.abs(SUtil.CNDF(0) - 0.5) < 0.01)
+    assert(Math.abs(SUtil.CNDF(1) - 0.8413) < 0.01)
+    assert(Math.abs(SUtil.CNDF(1.96) - 0.975) < 0.01)
+    assert(Math.abs(SUtil.CNDF(-1.96) - 0.024998) < 0.01)
+    assert(Math.abs(SUtil.CNDF(-1) - 0.1586) < 0.01)
+  }
+
+  @Test def testParseCashOHLCFmt1_1() {
+    val o = DataFmtAdaptors.parseCashOHLCFmt1("20160217_100000_000000,ohlcfeed,HKSE,00144,21.4,21.85,21.4,21.75,201840", false)
+    assert(o != None)
+    val b: OHLCBar = o.get
+    assertEquals(b.symbol, "00144")
+    assertEquals(b.dt, new DateTime(2016, 2, 17, 10, 0, 0))
+    assert(Math.abs(b.priceBar.o - 21.4) < 0.01)
+    assert(Math.abs(b.priceBar.h - 21.85) < 0.01)
+    assert(Math.abs(b.priceBar.l - 21.4) < 0.01)
+    assert(Math.abs(b.priceBar.c - 21.75) < 0.01)
+    assertEquals(b.priceBar.v, 201840)
+  }
+
+  @Test def testParseCashOHLCFmt1_2() {
+    val o = DataFmtAdaptors.parseCashOHLCFmt1("20160217_100000_000000,ohlcfeed,HKSE,144 HK Equity,21.4,21.85,21.4,21.75,201840", false)
+    assert(o != None)
+    val b: OHLCBar = o.get
+    assertEquals(b.symbol, "144 HK Equity")
+    assertEquals(b.dt, new DateTime(2016, 2, 17, 10, 0, 0))
+    assert(Math.abs(b.priceBar.o - 21.4) < 0.01)
+    assert(Math.abs(b.priceBar.h - 21.85) < 0.01)
+    assert(Math.abs(b.priceBar.l - 21.4) < 0.01)
+    assert(Math.abs(b.priceBar.c - 21.75) < 0.01)
+    assertEquals(b.priceBar.v, 201840)
+  }
+
+  @Test def testParseCashOHLCFmt1_3() {
+    val o = DataFmtAdaptors.parseCashOHLCFmt1("20160217_100000_000000,ohlcfeed,HKSE,144,21.4,21.85,21.4,21.75,201840", true)
+    assert(o != None)
+    val b: OHLCBar = o.get
+    assertEquals(b.symbol, "00144")
+    assertEquals(b.dt, new DateTime(2016, 2, 17, 10, 0, 0))
+    assert(Math.abs(b.priceBar.o - 21.4) < 0.01)
+    assert(Math.abs(b.priceBar.h - 21.85) < 0.01)
+    assert(Math.abs(b.priceBar.l - 21.4) < 0.01)
+    assert(Math.abs(b.priceBar.c - 21.75) < 0.01)
+    assertEquals(b.priceBar.v, 201840)
+  }
+
+  @Test def testParseCashMDI() {
+    val mdistr = "20160217_160000_000000,00941,80.12,400,B,80.1,1000,999999.0,0,999999.0,0,999999.0,0,999999.0,0,A,80.15,2000,999999.0,0,999999.0,0,999999.0,0,999999.0,0"
+    val o = DataFmtAdaptors.parseCashMDI(mdistr)
+    assert(o != None)
+    val mdis: MDIStruct = o.get
+
+    assertEquals(mdis.symbol, "00941")
+    assertEquals(mdis.dt, new DateTime(2016, 2, 17, 16, 0, 0))
+    assertEquals(mdis.tradeprice, 80.12, 0.01)
+    assertEquals(mdis.tradevolume, 400)
+
+    val bidpv = List((80.1, 1000), (999999.0, 0), (999999.0, 0), (999999.0, 0), (999999.0, 0))
+    val askpv = List((80.15, 2000), (999999.0, 0), (999999.0, 0), (999999.0, 0), (999999.0, 0))
+
+    assertEquals(mdis.bidpv, bidpv)
+    assertEquals(mdis.askpv, askpv)
+
+    assertEquals(mdistr, mdis.toString)
+
   }
 
 }
