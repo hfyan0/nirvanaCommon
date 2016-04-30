@@ -75,7 +75,7 @@ case class OHLCBar(val dt: DateTime, val symbol: String, val priceBar: OHLCPrice
     b.toString
   }
 
-  def toOHLCFeed(mkt: String, numLeadingZeros: Int): String = {
+  def toCashOHLCFeed(mkt: String, numLeadingZeros: Int): String = {
     //--------------------------------------------------
     // ohlcfeed
     // 20110314_093500_000000,ohlcfeed,HKSE,28992,0.175,0.175,0.175,0.175,520000
@@ -94,9 +94,8 @@ case class OHLCBar(val dt: DateTime, val symbol: String, val priceBar: OHLCPrice
     b.append(",")
     b.append(mkt)
     b.append(",")
-    if (numLeadingZeros > 0) {
-      b.append(SUtil.addLeadingChar(symbol, '0', numLeadingZeros))
-    }
+    if (numLeadingZeros > 0) b.append(SUtil.addLeadingChar(symbol, '0', numLeadingZeros))
+    else b.append(symbol)
     b.append(",")
     b.append(priceBar.o.toString)
     b.append(",")
@@ -372,7 +371,7 @@ object DataFmtAdaptors {
           if (ohlcacc.ready &&
             prev_bar_dt.getSecondOfDay <= endTime.getSecondOfDay) {
             // outList += curBar.toString
-            outList += curBar.toOHLCFeed("HKSE", 5)
+            outList += curBar.toCashOHLCFeed("HKSE", 5)
           }
           ohlcacc.reset
         }
@@ -402,7 +401,7 @@ object DataFmtAdaptors {
         val curBar = new OHLCBar(prev_bar_dt, prev_bar_sym, curPriceBar)
         if (ohlcacc.ready) {
           // outList += curBar.toString
-          outList += curBar.toOHLCFeed("HKSE", 5)
+          outList += curBar.toCashOHLCFeed("HKSE", 5)
         }
         ohlcacc.reset
         timeDiffInSec = tradetick.dt.getSecondOfDay - prev_bar_dt.getSecondOfDay
@@ -456,6 +455,8 @@ case class London extends TimeZone
 object SUtil {
   val EPSILON = 0.00001
   val SMALLNUM = 0.01
+  val ATU_INVALID_PRICE = 999999.0
+
   val EPOCH = new DateTime(1970, 1, 1, 0, 0, 0)
 
   private val _dateTimeFormat: DateTimeFormatter = DateTimeFormat.forPattern("yyyy-MM-dd HH:mm:ss")

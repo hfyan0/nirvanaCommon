@@ -52,7 +52,7 @@ class UtilTest extends AssertionsForJUnit {
 
   @Test def testOutputOHLCFeed() {
     val ohlcb = OHLCBar(new DateTime(2016, 1, 15, 12, 30, 6), "941", OHLCPriceBar(90, 100, 80, 85, 7))
-    assertEquals(ohlcb.toOHLCFeed("HKSE", 5), "20160115_123006_000000,ohlcfeed,HKSE,00941,90.0,100.0,80.0,85.0,7")
+    assertEquals(ohlcb.toCashOHLCFeed("HKSE", 5), "20160115_123006_000000,ohlcfeed,HKSE,00941,90.0,100.0,80.0,85.0,7")
   }
 
   @Test def testConvertTimestamp() {
