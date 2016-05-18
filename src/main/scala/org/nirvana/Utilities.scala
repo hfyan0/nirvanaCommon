@@ -154,33 +154,42 @@ object DataFmtAdaptors {
 
   private val _cash_datetime_fmt: DateTimeFormatter = DateTimeFormat.forPattern("yyyyMMdd_HHmmss_000000")
 
-  def parseHKExFmt1(s: String): TradeTick = {
+  def parseHKExFmt1(s: String): Option[TradeTick] = {
+    // A - automatched trade
+    // M - manual trade (price within normal range)
+    // S - manual trade (price outside normal range)
+    // E - semi-automatic special trade
+    // O - semi-automatic odd trade
+    // Q - special trade
+    // P - odd trade
+    // R - previous day trade
+    // U - auctioned trade
+    // V - overseas trade
+
     // 08002  8003630   5.290      11000U09200020140102 0
     // 08002  8003630   5.290       5000U09200020140102 0
     // 08002  8003630   5.290       4000U09200020140102 0
 
-    val symbol = s.substring(0, 5)
-    val price = s.substring(14, 22).trim.toDouble
-    val volume = s.substring(22, 33).trim.toLong
+    val ticktype = s.charAt(33)
+    if (ticktype == 'A' || ticktype == 'U') {
+      val symbol = s.substring(0, 5)
+      val price = s.substring(14, 22).trim.toDouble
+      val volume = s.substring(22, 33).trim.toLong
 
-    val year = s.substring(40, 44)
-    val month = s.substring(44, 46)
-    val day = s.substring(46, 48)
-    val hour = s.substring(34, 36)
-    val minute = s.substring(36, 38)
-    val sec = s.substring(38, 40)
-    val dt = new DateTime(year.toInt, month.toInt, day.toInt, hour.toInt, minute.toInt, sec.toInt)
+      val year = s.substring(40, 44)
+      val month = s.substring(44, 46)
+      val day = s.substring(46, 48)
+      val hour = s.substring(34, 36)
+      val minute = s.substring(36, 38)
+      val sec = s.substring(38, 40)
+      val dt = new DateTime(year.toInt, month.toInt, day.toInt, hour.toInt, minute.toInt, sec.toInt)
 
-    new TradeTick(dt, symbol, price, volume)
+      Some(new TradeTick(dt, symbol, price, volume))
+    }
+    else {
+      None
+    }
 
-    // pw.write(symbol.toString)
-    // pw.write(",")
-    // pw.write(price.toString)
-    // pw.write(",")
-    // pw.write(volume.toString)
-    // pw.write(",")
-    // pw.write(dt.toString)
-    // pw.write("\n")
   }
 
   //--------------------------------------------------
