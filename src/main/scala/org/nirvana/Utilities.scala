@@ -5,9 +5,74 @@ import org.joda.time.format.DateTimeFormat
 import org.joda.time.format.DateTimeFormatter
 import org.joda.time.{Period, DateTime, DateTimeZone, LocalDate, LocalTime, Duration, Days, Seconds}
 
+object BBOTTick {
+  def recSizeBBOT() = 4 * 5 + 2 * 5
+  def INVALID_PRICE(): Short = -32768
+}
+case class BBOTTick(
+    val numofdecimalplaces: Short,
+    val mssincebase:        Int,
+    val symNum:             Short,
+    val pricebase:          Int,
+    val tradeprice:         Short,
+    val tradevolume:        Int,
+    val bbidp:              Short,
+    val bbidv:              Int,
+    val baskp:              Short,
+    val baskv:              Int
+) {
+  def getMDIStruct(timebase: Long, symbolMap: Map[Short, String]): MDIStruct = {
+    // val tomul = Math.pow(10,numofdecimalplaces)
+    val tomul = numofdecimalplaces match {
+      case 1 => 10.0
+      case 2 => 100.0
+      case 3 => 1000.0
+      case 4 => 10000.0
+      case 5 => 100000.0
+      case 6 => 1000000.0
+      case _ => 1.0
+    }
+    val dnewtradeprice = if (tradeprice == BBOTTick.INVALID_PRICE) SUtil.ATU_INVALID_PRICE else Math.round((tradeprice + pricebase).toDouble) / tomul
+    val dnewbidp = if (bbidp == BBOTTick.INVALID_PRICE) SUtil.ATU_INVALID_PRICE else Math.round((bbidp + pricebase).toDouble) / tomul
+    val dnewaskp = if (baskp == BBOTTick.INVALID_PRICE) SUtil.ATU_INVALID_PRICE else Math.round((baskp + pricebase).toDouble) / tomul
+
+    val newbidpv = List((dnewbidp, bbidv.toLong)) ::: (1 to 4).toList.map(x => (SUtil.ATU_INVALID_PRICE, 0.toLong))
+    val newaskpv = List((dnewaskp, baskv.toLong)) ::: (1 to 4).toList.map(x => (SUtil.ATU_INVALID_PRICE, 0.toLong))
+
+    MDIStruct(new DateTime(timebase + mssincebase), symbolMap.get(symNum).getOrElse(""), dnewtradeprice, tradevolume, newbidpv, newaskpv)
+  }
+}
+
 //--------------------------------------------------
 // case class can't have more than 22 columns
 //--------------------------------------------------
+case class CompactTick(
+    val mssinceepoch: Long,
+    val symNum:       Short,
+    val tradeprice:   Int,
+    val tradevolume:  Int,
+    val bidpv:        List[(Int, Int)],
+    val askpv:        List[(Int, Int)]
+) {
+
+  def getMDIStruct(numofdecimalplaces: Short, symbolMap: Map[Short, String]): MDIStruct = {
+    // val tomul = Math.pow(10,numofdecimalplaces)
+    val tomul = numofdecimalplaces match {
+      case 1 => 10.0
+      case 2 => 100.0
+      case 3 => 1000.0
+      case 4 => 10000.0
+      case 5 => 100000.0
+      case 6 => 1000000.0
+      case _ => 1.0
+    }
+    val dnewtradeprice = if (tradeprice <= 0) SUtil.ATU_INVALID_PRICE else tradeprice.toDouble / tomul
+    val newbidpv = bidpv.map(tup => (Math.round(tup._1 + tradeprice).toDouble / tomul, tup._2.toLong)) ::: (1 to 5 - bidpv.length).toList.map(x => (SUtil.ATU_INVALID_PRICE.toDouble, 0.toLong))
+    val newaskpv = askpv.map(tup => (Math.round(tup._1 + tradeprice).toDouble / tomul, tup._2.toLong)) ::: (1 to 5 - askpv.length).toList.map(x => (SUtil.ATU_INVALID_PRICE.toDouble, 0.toLong))
+    MDIStruct(new DateTime(mssinceepoch), symbolMap.get(symNum).getOrElse(""), dnewtradeprice, tradevolume, newbidpv, newaskpv)
+  }
+}
+
 case class MDIStruct(
     val dt:          DateTime,
     val symbol:      String,
@@ -26,20 +91,90 @@ case class MDIStruct(
     b.append(String.format("%2s", dt.getHourOfDay().toString).replace(' ', '0'))
     b.append(String.format("%2s", dt.getMinuteOfHour().toString).replace(' ', '0'))
     b.append(String.format("%2s", dt.getSecondOfMinute().toString).replace(' ', '0'))
-    b.append("_000000")
+    b.append("_")
+    b.append(String.format("%3s", dt.getMillisOfSecond().toString).replace(' ', '0'))
+    b.append("000")
     b.append(",")
     b.append(symbol)
     b.append(",")
-    b.append(tradeprice.toString)
+    b.append(tradeprice.toString.replaceAll(".0$", ""))
     b.append(",")
     b.append(tradevolume.toString)
     b.append(",")
     b.append("B,")
-    b.append(bidpv.map(tup => { tup._1.toString + "," + tup._2.toString }).mkString(","))
+    b.append(bidpv.map(tup => { tup._1.toString.replaceAll(".0$", "") + "," + tup._2.toString }).mkString(","))
     b.append(",A,")
-    b.append(askpv.map(tup => { tup._1.toString + "," + tup._2.toString }).mkString(","))
+    b.append(askpv.map(tup => { tup._1.toString.replaceAll(".0$", "") + "," + tup._2.toString }).mkString(","))
 
     b.toString
+  }
+
+  def getNominalPrice(): Double = {
+    val bestbid = bidpv.head._1
+    val bestask = askpv.head._1
+    if (tradeprice >= SUtil.ATU_INVALID_PRICE) {
+      if (bestbid < SUtil.ATU_INVALID_PRICE && bestask < SUtil.ATU_INVALID_PRICE) (bestbid + bestask) / 2.0
+      else if (bestbid >= SUtil.ATU_INVALID_PRICE && bestask < SUtil.ATU_INVALID_PRICE) bestask
+      else if (bestbid < SUtil.ATU_INVALID_PRICE && bestask >= SUtil.ATU_INVALID_PRICE) bestbid
+      else tradeprice
+    }
+    else if (tradeprice >= bestbid && tradeprice <= bestask) tradeprice
+    else if (tradeprice < bestbid && tradeprice <= bestask) bestbid
+    else if (tradeprice >= bestbid && tradeprice > bestask) bestask
+    else tradeprice
+  }
+
+  def getNumberOfDecimalPlaces(): Short = {
+    val l = List(tradeprice) ::: bidpv.map(_._1) ::: askpv.map(_._1)
+    l.map(x => SUtil.getNumberOfDecimalPlaces(x)).max
+  }
+
+  def getCompactTick(timebase: Long, symbolMap: Map[String, Short]): CompactTick = {
+    // val tomul = Math.pow(10,numofdecimalplaces)
+    val tomul = getNumberOfDecimalPlaces match {
+      case 1 => 10.0
+      case 2 => 100.0
+      case 3 => 1000.0
+      case 4 => 10000.0
+      case 5 => 100000.0
+      case 6 => 1000000.0
+      case _ => 1.0
+    }
+    val lnewtradeprice = if (tradeprice < SUtil.ATU_INVALID_PRICE) Math.round(tradeprice * tomul).toInt else Math.round(-1.0 * tomul).toInt
+    val newbidpv = bidpv.filter(_._1 < SUtil.ATU_INVALID_PRICE).map(tup => (Math.round(tup._1 * tomul).toInt - lnewtradeprice, tup._2.toInt))
+    val newaskpv = askpv.filter(_._1 < SUtil.ATU_INVALID_PRICE).map(tup => (Math.round(tup._1 * tomul).toInt - lnewtradeprice, tup._2.toInt))
+
+    CompactTick((dt.getMillis - timebase).toInt, symbolMap.get(symbol).getOrElse(0), lnewtradeprice, tradevolume.toInt, newbidpv, newaskpv)
+  }
+  def getBBOTTick(timebase: Long, symbolMap: Map[String, Short]): BBOTTick = {
+    val numofdecimalplaces = getNumberOfDecimalPlaces
+    // val tomul = Math.pow(10,numofdecimalplaces)
+    val tomul = numofdecimalplaces match {
+      case 1 => 10.0
+      case 2 => 100.0
+      case 3 => 1000.0
+      case 4 => 10000.0
+      case 5 => 100000.0
+      case 6 => 1000000.0
+      case _ => 1.0
+    }
+    val iNominalPrice = Math.round(getNominalPrice * tomul).toInt
+
+    val itradep = if (tradeprice < SUtil.ATU_INVALID_PRICE)
+      (Math.round(tradeprice * tomul).toInt - iNominalPrice).toShort
+    else BBOTTick.INVALID_PRICE
+
+    val inewbidp =
+      if (bidpv.head._1 < SUtil.ATU_INVALID_PRICE)
+        (Math.round(bidpv.head._1 * tomul).toInt - iNominalPrice).toShort
+      else BBOTTick.INVALID_PRICE
+
+    val inewaskp =
+      if (askpv.head._1 < SUtil.ATU_INVALID_PRICE)
+        (Math.round(askpv.head._1 * tomul).toInt - iNominalPrice).toShort
+      else BBOTTick.INVALID_PRICE
+
+    BBOTTick(numofdecimalplaces, (dt.getMillis - timebase).toInt, symbolMap.get(symbol).getOrElse(0), iNominalPrice, itradep, tradevolume.toInt, inewbidp, bidpv.head._2.toInt, inewaskp, askpv.head._2.toInt)
   }
 
 }
@@ -563,8 +698,8 @@ object SUtil {
   def convertTimestampFmt5(ts: String): Option[DateTime] = {
     if (ts.length < 22) return None
     else {
-      val formatter = DateTimeFormat.forPattern("yyyyMMdd_HHmmss")
-      val dt: DateTime = formatter.parseDateTime(ts.substring(0, 15))
+      val formatter = DateTimeFormat.forPattern("yyyyMMdd_HHmmss_SSS")
+      val dt: DateTime = formatter.parseDateTime(ts.substring(0, 19))
       return Some(dt)
     }
   }
@@ -735,6 +870,13 @@ object SUtil {
     y = 1.0 - 0.398942280401 * Math.exp(-0.5 * x * x) * y;
 
     return (1d - neg) * y + neg * (1d - y);
+  }
+
+  def getNumberOfDecimalPlaces(x: Double): Short = {
+    val s = Math.abs(x).toString
+    val locOfDot = s.indexOf('.')
+    if (locOfDot < 0) 0
+    else s.replaceAll("^.*\\.", "").replaceAll("0*$", "").length.toShort
   }
 
 }
