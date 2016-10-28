@@ -763,13 +763,14 @@ object SUtil {
   }
 
   def calcReturns(p: List[Double]): List[Double] = {
-    def calcReturnsImpl(lp: List[Double], c: Double): List[Double] = lp match {
-      case Nil     => Nil
-      case p :: ps => { val r = p / c; r } :: calcReturnsImpl(ps, p)
+    def calcReturnsImpl(lp: List[Double], c: Double, ret_p_list: List[Double]): List[Double] = lp match {
+      case Nil      => Nil
+      case p :: Nil => (p / c) :: ret_p_list
+      case p :: ps  => calcReturnsImpl(ps, p, (p / c) :: ret_p_list)
     }
     p match {
       case Nil     => Nil
-      case x :: xs => calcReturnsImpl(xs, x)
+      case x :: xs => calcReturnsImpl(xs, x, List[Double]())
     }
   }
 
